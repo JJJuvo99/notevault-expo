@@ -1,82 +1,164 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import createContextHook from '@nkzw/create-context-hook';
-import { User } from '@/types';
+import { useState, useEffect, useCallback, useMemo } from "react";
+import * as SecureStore from "expo-secure-store";
+import createContextHook from "@nkzw/create-context-hook";
+import { User } from "@/types";
 
-const AUTH_KEY = 'notevault_auth';
+const AUTH_KEY = "notevault_auth";
+
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function makeUser(name: string, email: string): User {
+  return {
+    id: `user-${Date.now()}`,
+    name: name.trim() || email.split("@")[0] || "User",
+    email: email.trim().toLowerCase(),
+  };
+}
 
 export const [AuthProvider, useAuth] = createContextHook(() => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const isAuthenticated = !!user;
 
   useEffect(() => {
     const loadAuth = async () => {
       try {
-        const stored = await AsyncStorage.getItem(AUTH_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored) as User;
-          setUser(parsed);
-          setIsAuthenticated(true);
-          console.log('[Auth] Restored session for:', parsed.name);
+        const stored = await SecureStore.getItemAsync(AUTH_KEY);
+
+        if (!stored) return;
+
+        const parsed = JSON.parse(stored) as User;
+
+        if (!parsed?.email || !parsed?.id) {
+          await SecureStore.deleteItemAsync(AUTH_KEY);
+          return;
         }
+
+        setUser(parsed);
       } catch (e) {
-        console.log('[Auth] Failed to load session:', e);
+        console.log("[Auth] Failed to load session:", e);
+        await SecureStore.deleteItemAsync(AUTH_KEY);
       } finally {
         setIsLoading(false);
       }
     };
+
     void loadAuth();
   }, []);
 
-  const signIn = useCallback(async (email: string, _password: string) => {
-    console.log('[Auth] Signing in with:', email);
-    const newUser: User = {
-      id: Date.now().toString(),
-      name: email.split('@')[0] || 'User',
-      email,
-    };
-    await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(newUser));
-    setUser(newUser);
-    setIsAuthenticated(true);
-    return newUser;
+  const saveSession = useCallback(async (nextUser: User) => {
+    await SecureStore.setItemAsync(AUTH_KEY, JSON.stringify(nextUser));
+    setUser(nextUser);
+    setAuthError(null);
   }, []);
 
-  const signUp = useCallback(async (name: string, email: string, _password: string) => {
-    console.log('[Auth] Signing up:', name, email);
-    const newUser: User = {
-      id: Date.now().toString(),
-      name,
-      email,
-    };
-    await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(newUser));
-    setUser(newUser);
-    setIsAuthenticated(true);
-    return newUser;
-  }, []);
+  const signIn = useCallback(
+    async (email: string, password: string) => {
+      const cleanEmail = email.trim().toLowerCase();
+
+      if (!isValidEmail(cleanEmail)) {
+        const message = "Please enter a valid email address.";
+        setAuthError(message);
+        throw new Error(message);
+      }
+
+      if (password.trim().length < 6) {
+        const message = "Password must be at least 6 characters.";
+        setAuthError(message);
+        throw new Error(message);
+      }
+
+      const newUser = makeUser(cleanEmail.split("@")[0], cleanEmail);
+      await saveSession(newUser);
+
+      return newUser;
+    },
+    [saveSession],
+  );
+
+  const signUp = useCallback(
+    async (name: string, email: string, password: string) => {
+      const cleanName = name.trim();
+      const cleanEmail = email.trim().toLowerCase();
+
+      if (!cleanName) {
+        const message = "Please enter your name.";
+        setAuthError(message);
+        throw new Error(message);
+      }
+
+      if (!isValidEmail(cleanEmail)) {
+        const message = "Please enter a valid email address.";
+        setAuthError(message);
+        throw new Error(message);
+      }
+
+      if (password.trim().length < 6) {
+        const message = "Password must be at least 6 characters.";
+        setAuthError(message);
+        throw new Error(message);
+      }
+
+      const newUser = makeUser(cleanName, cleanEmail);
+      await saveSession(newUser);
+
+      return newUser;
+    },
+    [saveSession],
+  );
 
   const signOut = useCallback(async () => {
-    console.log('[Auth] Signing out');
-    await AsyncStorage.removeItem(AUTH_KEY);
+    await SecureStore.deleteItemAsync(AUTH_KEY);
     setUser(null);
-    setIsAuthenticated(false);
+    setAuthError(null);
   }, []);
 
-  const updateProfile = useCallback(async (updates: Partial<User>) => {
-    if (!user) return;
-    const updated = { ...user, ...updates };
-    await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(updated));
-    setUser(updated);
-    console.log('[Auth] Profile updated:', updated.name);
-  }, [user]);
+  const updateProfile = useCallback(
+    async (updates: Partial<User>) => {
+      if (!user) return;
 
-  return useMemo(() => ({
-    user,
-    isLoading,
-    isAuthenticated,
-    signIn,
-    signUp,
-    signOut,
-    updateProfile,
-  }), [user, isLoading, isAuthenticated, signIn, signUp, signOut, updateProfile]);
+      const updated: User = {
+        ...user,
+        ...updates,
+        email: updates.email?.trim().toLowerCase() ?? user.email,
+        name: updates.name?.trim() ?? user.name,
+      };
+
+      await saveSession(updated);
+    },
+    [user, saveSession],
+  );
+
+  const clearAuthError = useCallback(() => {
+    setAuthError(null);
+  }, []);
+
+  return useMemo(
+    () => ({
+      user,
+      isLoading,
+      isAuthenticated,
+      authError,
+      signIn,
+      signUp,
+      signOut,
+      updateProfile,
+      clearAuthError,
+    }),
+    [
+      user,
+      isLoading,
+      isAuthenticated,
+      authError,
+      signIn,
+      signUp,
+      signOut,
+      updateProfile,
+      clearAuthError,
+    ],
+  );
 });

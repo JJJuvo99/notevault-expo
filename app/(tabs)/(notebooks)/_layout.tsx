@@ -1,9 +1,10 @@
 import { Stack } from "expo-router";
 import React from "react";
-import Colors from "@/constants/colors";
+import { useThemeColors } from "@/hooks/useThemeColors";
 
 export default function NotebooksLayout() {
-  console.log("[NotebooksLayout] Rendering notebooks stack layout");
+  const Colors = useThemeColors();
+
   return (
     <Stack
       screenOptions={{

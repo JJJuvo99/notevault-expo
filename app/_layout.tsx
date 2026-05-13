@@ -1,14 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
-import { AuthProvider } from "@/providers/AuthProvider";
+import { ActivityIndicator, View } from "react-native";
+import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import { NotesProvider } from "@/providers/NotesProvider";
 import { CalendarJournalProvider } from "@/providers/CalendarJournalProvider";
-import Colors from "@/constants/colors";
-
+import { useThemeColors } from "@/hooks/useThemeColors";
+import { useSettingsStore } from "@/stores/useSettingsStore";
+import AuthLockGate from "@/components/AuthLockGate";
 void SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient({
@@ -20,8 +22,49 @@ const queryClient = new QueryClient({
   },
 });
 
+function AuthGate() {
+  const router = useRouter();
+  const segments = useSegments();
+  const Colors = useThemeColors();
+  const { isLoading, isAuthenticated } = useAuth();
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    const currentRoot = segments[0];
+    const isOnLogin = currentRoot === "login";
+
+    if (!isAuthenticated && !isOnLogin) {
+      router.replace("/login");
+      return;
+    }
+
+    if (isAuthenticated && isOnLogin) {
+      router.replace("/(tabs)/(notebooks)");
+    }
+  }, [isLoading, isAuthenticated, segments, router]);
+
+  if (isLoading) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: Colors.background,
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <ActivityIndicator color={Colors.accent} size="large" />
+      </View>
+    );
+  }
+
+  return <RootLayoutNav />;
+}
+
 function RootLayoutNav() {
-  console.log("[RootLayout] Rendering root stack navigator");
+  const Colors = useThemeColors();
+
   return (
     <Stack
       screenOptions={{
@@ -33,7 +76,10 @@ function RootLayoutNav() {
       }}
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="login" options={{ headerShown: false, animation: "fade" }} />
+      <Stack.Screen
+        name="login"
+        options={{ headerShown: false, animation: "fade" }}
+      />
       <Stack.Screen
         name="note-editor"
         options={{
@@ -83,24 +129,38 @@ function RootLayoutNav() {
   );
 }
 
+function RootLayoutContent() {
+  const Colors = useThemeColors();
+  const themeMode = useSettingsStore((s) => s.themeMode);
+
+  const statusBarStyle = themeMode === "light" ? "dark" : "light";
+
+  return (
+    <GestureHandlerRootView
+      style={{ flex: 1, backgroundColor: Colors.background }}
+    >
+      <AuthProvider>
+        <NotesProvider>
+          <CalendarJournalProvider>
+            <StatusBar style={statusBarStyle} />
+            <AuthLockGate>
+              <AuthGate />
+            </AuthLockGate>
+          </CalendarJournalProvider>
+        </NotesProvider>
+      </AuthProvider>
+    </GestureHandlerRootView>
+  );
+}
+
 export default function RootLayout() {
   useEffect(() => {
-    console.log("[RootLayout] App mounted, hiding splash screen");
     void SplashScreen.hideAsync();
   }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
-      <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.background }}>
-        <AuthProvider>
-          <NotesProvider>
-            <CalendarJournalProvider>
-              <StatusBar style="light" />
-              <RootLayoutNav />
-            </CalendarJournalProvider>
-          </NotesProvider>
-        </AuthProvider>
-      </GestureHandlerRootView>
+      <RootLayoutContent />
     </QueryClientProvider>
   );
 }

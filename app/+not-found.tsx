@@ -13,7 +13,9 @@ export default function NotFoundScreen() {
           <AlertCircle size={48} color={Colors.textMuted} />
         </View>
         <Text style={styles.title}>Page not found</Text>
-        <Text style={styles.subtitle}>The screen you're looking for doesn't exist.</Text>
+        <Text style={styles.subtitle}>
+          The screen you&#39;re looking for doesn&#39;t exist.
+        </Text>
         <Link href="/" style={styles.link}>
           <Text style={styles.linkText}>Go to home screen</Text>
         </Link>

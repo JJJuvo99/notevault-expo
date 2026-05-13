@@ -24,6 +24,8 @@ export interface Note {
   createdAt: string;
   updatedAt: string;
   isPinned: boolean;
+  reminderAt?: string | null;
+  reminderNotificationId?: string | null;
 }
 
 export interface FormattingOption {
@@ -47,7 +49,7 @@ export interface CalendarEvent {
 export interface JournalEntry {
   id: string;
   date: string;
-  mood: 'great' | 'good' | 'okay' | 'bad' | 'awful';
+  mood: "great" | "good" | "okay" | "bad" | "awful";
   content: string;
   gratitude?: string;
   createdAt: string;
