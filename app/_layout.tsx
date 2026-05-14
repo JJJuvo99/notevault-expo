@@ -4,6 +4,7 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
+import * as Notifications from "expo-notifications";
 import { ActivityIndicator, View } from "react-native";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import { NotesProvider } from "@/providers/NotesProvider";
@@ -11,6 +12,7 @@ import { CalendarJournalProvider } from "@/providers/CalendarJournalProvider";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import AuthLockGate from "@/components/AuthLockGate";
+
 void SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient({
@@ -44,6 +46,23 @@ function AuthGate() {
     }
   }, [isLoading, isAuthenticated, segments, router]);
 
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const noteId = response.notification.request.content.data?.noteId;
+
+        if (typeof noteId === "string" && noteId.length > 0) {
+          router.push({
+            pathname: "/note-editor",
+            params: { noteId },
+          });
+        }
+      },
+    );
+
+    return () => subscription.remove();
+  }, [router]);
+
   if (isLoading) {
     return (
       <View
@@ -76,10 +95,12 @@ function RootLayoutNav() {
       }}
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+
       <Stack.Screen
         name="login"
         options={{ headerShown: false, animation: "fade" }}
       />
+
       <Stack.Screen
         name="note-editor"
         options={{
@@ -88,6 +109,7 @@ function RootLayoutNav() {
           animation: "slide_from_bottom",
         }}
       />
+
       <Stack.Screen
         name="ai-chat"
         options={{
@@ -96,6 +118,7 @@ function RootLayoutNav() {
           animation: "slide_from_bottom",
         }}
       />
+
       <Stack.Screen
         name="notebook-detail"
         options={{
@@ -103,6 +126,7 @@ function RootLayoutNav() {
           animation: "slide_from_right",
         }}
       />
+
       <Stack.Screen
         name="calendar"
         options={{
@@ -110,6 +134,7 @@ function RootLayoutNav() {
           animation: "slide_from_right",
         }}
       />
+
       <Stack.Screen
         name="journal"
         options={{
@@ -117,6 +142,7 @@ function RootLayoutNav() {
           animation: "slide_from_right",
         }}
       />
+
       <Stack.Screen
         name="modal"
         options={{
@@ -143,6 +169,7 @@ function RootLayoutContent() {
         <NotesProvider>
           <CalendarJournalProvider>
             <StatusBar style={statusBarStyle} />
+
             <AuthLockGate>
               <AuthGate />
             </AuthLockGate>

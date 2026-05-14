@@ -8,6 +8,8 @@ import {
   ScrollView,
   Platform,
 } from "react-native";
+import DraggableFlatList from "react-native-draggable-flatlist";
+
 import {
   Plus,
   Trash2,
@@ -15,6 +17,18 @@ import {
   ChevronDown,
   ChevronRight,
   Check,
+  Heading1,
+  Heading2,
+  Heading3,
+  List,
+  ListOrdered,
+  CheckSquare,
+  Quote,
+  Minus,
+  Code2,
+  Table,
+  Image,
+  Lightbulb,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -32,6 +46,13 @@ interface BlockEditorProps {
   isLightBg: boolean;
 }
 
+type SlashCommand = {
+  label: string;
+  subtitle: string;
+  type: BlockType;
+  icon: React.ReactNode;
+};
+
 function BlockEditorImpl(props: BlockEditorProps) {
   const Colors = useThemeColors();
   const styles = makeStyles(Colors);
@@ -48,6 +69,8 @@ function BlockEditorImpl(props: BlockEditorProps) {
   } = props;
 
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [slashBlockId, setSlashBlockId] = useState<string | null>(null);
+  const [slashQuery, setSlashQuery] = useState<string>("");
 
   const updateBlock = useCallback(
     (id: string, patch: Partial<Block>) => {
@@ -70,6 +93,7 @@ function BlockEditorImpl(props: BlockEditorProps) {
       onChange(
         blocks.map((b) => {
           if (b.id !== id) return b;
+
           const created = newBlock(type);
 
           if (
@@ -81,7 +105,11 @@ function BlockEditorImpl(props: BlockEditorProps) {
             return { ...created, id };
           }
 
-          return { ...created, id, text: b.text ?? "" };
+          return {
+            ...created,
+            id,
+            text: b.text === "/" ? "" : (b.text ?? ""),
+          };
         }),
       );
     },
@@ -102,31 +130,63 @@ function BlockEditorImpl(props: BlockEditorProps) {
     [blocks, onChange],
   );
 
+  const handleSlashCommand = useCallback(
+    (id: string, type: BlockType) => {
+      void Haptics.selectionAsync();
+      setSlashBlockId(null);
+      transformBlock(id, type);
+    },
+    [transformBlock],
+  );
+
   return (
     <View style={styles.container}>
-      {blocks.map((block, idx) => (
-        <BlockRenderer
-          key={block.id}
-          Colors={Colors}
-          block={block}
-          isActive={activeId === block.id}
-          onFocus={() => setActiveId(block.id)}
-          onBlur={() =>
-            setActiveId((prev) => (prev === block.id ? null : prev))
-          }
-          onChange={(patch) => updateBlock(block.id, patch)}
-          onRemove={() => removeBlock(block.id)}
-          onTransform={(t) => transformBlock(block.id, t)}
-          onSubmitEditing={() => insertAfter(block.id, "text")}
-          onInsertAfter={() => onRequestInsert(block.id)}
-          textColor={textColor}
-          mutedColor={mutedColor}
-          fontSize={fontSize}
-          lineSpacing={lineSpacing}
-          isLightBg={isLightBg}
-          isLast={idx === blocks.length - 1}
-        />
-      ))}
+      <DraggableFlatList
+        data={blocks}
+        keyExtractor={(item) => item.id}
+        scrollEnabled={false}
+        activationDistance={8}
+        onDragEnd={({ data }) => {
+          void Haptics.selectionAsync();
+          onChange(data);
+        }}
+        renderItem={({ item: block, drag, isActive }) => (
+          <BlockRenderer
+            Colors={Colors}
+            block={block}
+            isActive={activeId === block.id || isActive}
+            isDragging={isActive}
+            onDrag={drag}
+            slashOpen={slashBlockId === block.id}
+            slashQuery={slashBlockId === block.id ? slashQuery : ""}
+            onSlashQueryChange={setSlashQuery}
+            onShowSlashMenu={() => {
+              setSlashBlockId(block.id);
+              setSlashQuery("");
+            }}
+            onHideSlashMenu={() => {
+              setSlashBlockId((prev) => (prev === block.id ? null : prev));
+              setSlashQuery("");
+            }}
+            onSlashCommand={(type) => handleSlashCommand(block.id, type)}
+            onFocus={() => setActiveId(block.id)}
+            onBlur={() =>
+              setActiveId((prev) => (prev === block.id ? null : prev))
+            }
+            onChange={(patch) => updateBlock(block.id, patch)}
+            onRemove={() => removeBlock(block.id)}
+            onTransform={(t) => transformBlock(block.id, t)}
+            onSubmitEditing={() => insertAfter(block.id, "text")}
+            onInsertAfter={() => onRequestInsert(block.id)}
+            textColor={textColor}
+            mutedColor={mutedColor}
+            fontSize={fontSize}
+            lineSpacing={lineSpacing}
+            isLightBg={isLightBg}
+            isLast={false}
+          />
+        )}
+      />
 
       <Pressable
         style={styles.addBlockBtn}
@@ -148,6 +208,14 @@ interface BlockRendererProps {
   Colors: any;
   block: Block;
   isActive: boolean;
+  isDragging: boolean;
+  onDrag: () => void;
+  slashOpen: boolean;
+  onShowSlashMenu: () => void;
+  onHideSlashMenu: () => void;
+  onSlashCommand: (type: BlockType) => void;
+  slashQuery: string;
+  onSlashQueryChange: (query: string) => void;
   onFocus: () => void;
   onBlur: () => void;
   onChange: (patch: Partial<Block>) => void;
@@ -168,6 +236,14 @@ function BlockRenderer(props: BlockRendererProps) {
     Colors,
     block,
     isActive,
+    isDragging,
+    onDrag,
+    slashOpen,
+    onShowSlashMenu,
+    onHideSlashMenu,
+    onSlashCommand,
+    slashQuery,
+    onSlashQueryChange,
     onFocus,
     onBlur,
     onChange,
@@ -182,6 +258,34 @@ function BlockRenderer(props: BlockRendererProps) {
   } = props;
 
   const styles = makeStyles(Colors);
+
+  const handleTextChange = useCallback(
+    (text: string) => {
+      onChange({ text });
+
+      if (block.type !== "text") return;
+
+      const trimmed = text.trim();
+
+      if (trimmed.startsWith("/")) {
+        onShowSlashMenu();
+        onSlashQueryChange(trimmed.slice(1).toLowerCase());
+        return;
+      }
+
+      if (slashOpen) {
+        onHideSlashMenu();
+      }
+    },
+    [
+      block.type,
+      onChange,
+      onShowSlashMenu,
+      onHideSlashMenu,
+      onSlashQueryChange,
+      slashOpen,
+    ],
+  );
 
   const handleKeyPress = useCallback(
     (e: { nativeEvent: { key: string } }) => {
@@ -413,29 +517,47 @@ function BlockRenderer(props: BlockRendererProps) {
       case "text":
       default:
         return (
-          <TextInput
-            style={[
-              styles.paragraph,
-              { color: textColor, fontSize, lineHeight: lineSpacing },
-            ]}
-            value={block.text ?? ""}
-            onChangeText={(t) => onChange({ text: t })}
-            onFocus={onFocus}
-            onBlur={onBlur}
-            onKeyPress={handleKeyPress}
-            placeholder={
-              isActive ? "Type '/' for commands or just write…" : " "
-            }
-            placeholderTextColor={mutedColor}
-            multiline
-            scrollEnabled={false}
-          />
+          <View>
+            <TextInput
+              style={[
+                styles.paragraph,
+                { color: textColor, fontSize, lineHeight: lineSpacing },
+              ]}
+              value={block.text ?? ""}
+              onChangeText={handleTextChange}
+              onFocus={onFocus}
+              onBlur={onBlur}
+              onKeyPress={handleKeyPress}
+              placeholder={
+                isActive ? "Type '/' for commands or just write…" : " "
+              }
+              placeholderTextColor={mutedColor}
+              multiline
+              scrollEnabled={false}
+            />
+
+            {slashOpen && (
+              <SlashCommandMenu
+                Colors={Colors}
+                mutedColor={mutedColor}
+                textColor={textColor}
+                query={slashQuery}
+                onSelect={onSlashCommand}
+              />
+            )}
+          </View>
         );
     }
   };
 
   return (
-    <View style={[styles.blockRow, isActive && styles.blockRowActive]}>
+    <View
+      style={[
+        styles.blockRow,
+        isActive && styles.blockRowActive,
+        isDragging && styles.blockRowDragging,
+      ]}
+    >
       <View style={styles.blockGutter}>
         <Pressable
           onPress={() => {
@@ -453,8 +575,9 @@ function BlockRenderer(props: BlockRendererProps) {
         </Pressable>
 
         <Pressable
-          onPress={() => onRemove()}
-          onLongPress={() => onRemove()}
+          onLongPress={onDrag}
+          onPressIn={onDrag}
+          delayLongPress={120}
           hitSlop={8}
           style={({ pressed }) => [
             styles.gutterBtn,
@@ -467,6 +590,138 @@ function BlockRenderer(props: BlockRendererProps) {
       </View>
 
       <View style={styles.blockBody}>{renderBody()}</View>
+    </View>
+  );
+}
+
+function SlashCommandMenu({
+  Colors,
+  mutedColor,
+  textColor,
+  query,
+  onSelect,
+}: {
+  Colors: any;
+  mutedColor: string;
+  textColor: string;
+  query: string;
+  onSelect: (type: BlockType) => void;
+}) {
+  const styles = makeStyles(Colors);
+
+  const commands: SlashCommand[] = [
+    {
+      label: "Heading 1",
+      subtitle: "Large section heading",
+      type: "h1",
+      icon: <Heading1 size={17} color={Colors.accent} />,
+    },
+    {
+      label: "Heading 2",
+      subtitle: "Medium heading",
+      type: "h2",
+      icon: <Heading2 size={17} color={Colors.accent} />,
+    },
+    {
+      label: "Heading 3",
+      subtitle: "Small heading",
+      type: "h3",
+      icon: <Heading3 size={17} color={Colors.accent} />,
+    },
+    {
+      label: "Checklist",
+      subtitle: "Track a task or to-do",
+      type: "checklist",
+      icon: <CheckSquare size={17} color={Colors.success} />,
+    },
+    {
+      label: "Bullet list",
+      subtitle: "Simple bullet point",
+      type: "bullet",
+      icon: <List size={17} color={Colors.accent} />,
+    },
+    {
+      label: "Numbered list",
+      subtitle: "Ordered list item",
+      type: "numbered",
+      icon: <ListOrdered size={17} color={Colors.accent} />,
+    },
+    {
+      label: "Quote",
+      subtitle: "Highlighted quote block",
+      type: "quote",
+      icon: <Quote size={17} color="#66D9EF" />,
+    },
+    {
+      label: "Callout",
+      subtitle: "Highlighted note",
+      type: "callout",
+      icon: <Lightbulb size={17} color={Colors.warning} />,
+    },
+    {
+      label: "Divider",
+      subtitle: "Separate sections",
+      type: "divider",
+      icon: <Minus size={17} color={mutedColor} />,
+    },
+    {
+      label: "Code",
+      subtitle: "Code snippet",
+      type: "code",
+      icon: <Code2 size={17} color="#A9DC76" />,
+    },
+    {
+      label: "Table",
+      subtitle: "Rows and columns",
+      type: "table",
+      icon: <Table size={17} color={Colors.accent} />,
+    },
+    {
+      label: "Image",
+      subtitle: "Add image by URL",
+      type: "image",
+      icon: <Image size={17} color={Colors.accent} />,
+    },
+  ];
+  const filteredCommands = commands.filter((command) => {
+    const q = query.trim().toLowerCase();
+
+    if (!q) return true;
+
+    return (
+      command.label.toLowerCase().includes(q) ||
+      command.subtitle.toLowerCase().includes(q) ||
+      command.type.toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <View style={styles.slashMenu}>
+      <Text style={[styles.slashMenuTitle, { color: mutedColor }]}>
+        Insert block
+      </Text>
+
+      {filteredCommands.map((command) => (
+        <Pressable
+          key={command.type}
+          style={({ pressed }) => [
+            styles.slashMenuItem,
+            pressed && styles.slashMenuItemPressed,
+          ]}
+          onPress={() => onSelect(command.type)}
+        >
+          <View style={styles.slashIcon}>{command.icon}</View>
+
+          <View style={styles.slashTextWrap}>
+            <Text style={[styles.slashLabel, { color: textColor }]}>
+              {command.label}
+            </Text>
+            <Text style={[styles.slashSubtitle, { color: mutedColor }]}>
+              {command.subtitle}
+            </Text>
+          </View>
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -773,6 +1028,10 @@ const makeStyles = (Colors: any) =>
       borderRadius: 6,
     },
     blockRowActive: {},
+    blockRowDragging: {
+      opacity: 0.85,
+      transform: [{ scale: 1.01 }],
+    },
     blockGutter: {
       width: 32,
       flexDirection: "row",
@@ -793,6 +1052,54 @@ const makeStyles = (Colors: any) =>
     paragraph: {
       paddingVertical: 4,
       minHeight: 24,
+    },
+    slashMenu: {
+      backgroundColor: Colors.card,
+      borderWidth: 1,
+      borderColor: Colors.cardBorder,
+      borderRadius: 16,
+      marginTop: 8,
+      marginBottom: 8,
+      paddingVertical: 8,
+      overflow: "hidden",
+    },
+    slashMenuTitle: {
+      fontSize: 11,
+      fontWeight: "700" as const,
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
+      paddingHorizontal: 14,
+      paddingTop: 4,
+      paddingBottom: 8,
+    },
+    slashMenuItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      gap: 10,
+    },
+    slashMenuItemPressed: {
+      backgroundColor: Colors.accentSoft,
+    },
+    slashIcon: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: Colors.accentSoft,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    slashTextWrap: {
+      flex: 1,
+    },
+    slashLabel: {
+      fontSize: 14,
+      fontWeight: "700" as const,
+    },
+    slashSubtitle: {
+      fontSize: 12,
+      marginTop: 2,
     },
     headingWrap: {
       flexDirection: "row",

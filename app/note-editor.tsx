@@ -81,6 +81,9 @@ export default function NoteEditorScreen() {
   const [showBlockMenu, setShowBlockMenu] = useState<boolean>(false);
   const [insertAfterId, setInsertAfterId] = useState<string | null>(null);
   const [showReminderPicker, setShowReminderPicker] = useState<boolean>(false);
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">(
+    "saved",
+  );
 
   const [reminderAt, setReminderAt] = useState<string | null>(
     existingNote?.reminderAt ?? null,
@@ -88,6 +91,14 @@ export default function NoteEditorScreen() {
   const [reminderNotificationId, setReminderNotificationId] = useState<
     string | null
   >(existingNote?.reminderNotificationId ?? null);
+
+  const [reminderPickerMode, setReminderPickerMode] = useState<"date" | "time">(
+    "date",
+  );
+
+  const [pendingReminderDate, setPendingReminderDate] = useState<Date | null>(
+    null,
+  );
 
   const [backgroundColor, setBackgroundColor] = useState<string>(
     Colors.background,
@@ -156,13 +167,22 @@ export default function NoteEditorScreen() {
       const content = serializeBlocks(blocksRef.current);
       const plain = blocksToPlainText(blocksRef.current);
 
+      setSaveStatus("saving");
+
       void updateNote(noteId, {
         title: titleRef.current || "Untitled",
         content,
         plainText: plain,
         reminderAt,
         reminderNotificationId,
-      });
+      })
+        .then(() => {
+          setSaveStatus("saved");
+        })
+        .catch((e) => {
+          console.log("[NoteEditor] Auto-save failed:", e);
+          setSaveStatus("unsaved");
+        });
     }, 1500);
 
     return () => {
@@ -173,14 +193,70 @@ export default function NoteEditorScreen() {
   }, [blocks, title, noteId, updateNote, reminderAt, reminderNotificationId]);
 
   const plainText = useMemo(() => blocksToPlainText(blocks), [blocks]);
+  const handleTitleChange = useCallback((value: string) => {
+    setTitle(value);
+    setSaveStatus("unsaved");
+  }, []);
 
+  const handleBlocksChange = useCallback((nextBlocks: Block[]) => {
+    setBlocks(nextBlocks);
+    setSaveStatus("unsaved");
+  }, []);
   const handleReminderChange = useCallback(
     async (_event: unknown, selectedDate?: Date) => {
+      if (!selectedDate) {
+        setShowReminderPicker(false);
+        setPendingReminderDate(null);
+        setReminderPickerMode("date");
+        return;
+      }
+
+      if (Platform.OS === "android" && reminderPickerMode === "date") {
+        const base = reminderAt
+          ? new Date(reminderAt)
+          : new Date(Date.now() + 3600000);
+
+        const chosenDate = new Date(base);
+        chosenDate.setFullYear(selectedDate.getFullYear());
+        chosenDate.setMonth(selectedDate.getMonth());
+        chosenDate.setDate(selectedDate.getDate());
+
+        setPendingReminderDate(chosenDate);
+        setShowReminderPicker(false);
+
+        setTimeout(() => {
+          setReminderPickerMode("time");
+          setShowReminderPicker(true);
+        }, 250);
+
+        return;
+      }
+
+      const finalDate = (() => {
+        if (Platform.OS === "android" && reminderPickerMode === "time") {
+          const base =
+            pendingReminderDate ??
+            (reminderAt !== null
+              ? new Date(reminderAt)
+              : new Date(Date.now() + 3600000));
+
+          const chosen = new Date(base);
+          chosen.setHours(selectedDate.getHours());
+          chosen.setMinutes(selectedDate.getMinutes());
+          chosen.setSeconds(0);
+          chosen.setMilliseconds(0);
+
+          return chosen;
+        }
+
+        return selectedDate;
+      })();
+
       setShowReminderPicker(false);
+      setPendingReminderDate(null);
+      setReminderPickerMode("date");
 
-      if (!selectedDate) return;
-
-      if (selectedDate.getTime() <= Date.now()) {
+      if (finalDate.getTime() <= Date.now()) {
         Alert.alert(
           "Invalid reminder",
           "Please choose a future date and time.",
@@ -188,7 +264,7 @@ export default function NoteEditorScreen() {
         return;
       }
 
-      const nextReminderAt = selectedDate.toISOString();
+      const nextReminderAt = finalDate.toISOString();
 
       if (reminderNotificationId) {
         await cancelNoteReminderNotification(reminderNotificationId);
@@ -228,7 +304,15 @@ export default function NoteEditorScreen() {
 
       Alert.alert("Reminder set", "NoteVault will remind you about this note.");
     },
-    [reminderNotificationId, noteId, title, updateNote],
+    [
+      reminderPickerMode,
+      reminderAt,
+      pendingReminderDate,
+      reminderNotificationId,
+      noteId,
+      title,
+      updateNote,
+    ],
   );
 
   const handleClearReminder = useCallback(async () => {
@@ -260,6 +344,7 @@ export default function NoteEditorScreen() {
     }
 
     setIsSaving(true);
+    setSaveStatus("saving");
 
     try {
       const content = serializeBlocks(blocks);
@@ -296,6 +381,7 @@ export default function NoteEditorScreen() {
         }
       }
 
+      setSaveStatus("saved");
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (e) {
@@ -635,7 +721,12 @@ export default function NoteEditorScreen() {
           </Text>
 
           <Text style={[styles.wordCount, { color: mutedColor }]}>
-            {wordCount} words · {charCount} chars
+            {wordCount} words · {charCount} chars ·{" "}
+            {saveStatus === "saving"
+              ? "Saving…"
+              : saveStatus === "unsaved"
+                ? "Unsaved"
+                : "Saved"}
           </Text>
         </View>
 
@@ -679,7 +770,7 @@ export default function NoteEditorScreen() {
             placeholder="Untitled"
             placeholderTextColor={mutedColor}
             value={title}
-            onChangeText={setTitle}
+            onChangeText={handleTitleChange}
             testID="input-note-title"
           />
 
@@ -711,7 +802,7 @@ export default function NoteEditorScreen() {
 
           <BlockEditor
             blocks={blocks}
-            onChange={setBlocks}
+            onChange={handleBlocksChange}
             onRequestInsert={handleRequestInsert}
             textColor={textColor}
             mutedColor={mutedColor}
@@ -771,7 +862,11 @@ export default function NoteEditorScreen() {
 
             <Pressable
               style={styles.bottomBtn}
-              onPress={() => setShowReminderPicker(true)}
+              onPress={() => {
+                setReminderPickerMode("date");
+                setPendingReminderDate(null);
+                setShowReminderPicker(true);
+              }}
               onLongPress={handleClearReminder}
               testID="btn-reminder-editor"
             >
@@ -851,11 +946,12 @@ export default function NoteEditorScreen() {
       {showReminderPicker && (
         <DateTimePicker
           value={
-            reminderAt ? new Date(reminderAt) : new Date(Date.now() + 3600000)
+            pendingReminderDate ??
+            (reminderAt ? new Date(reminderAt) : new Date(Date.now() + 3600000))
           }
-          mode="datetime"
+          mode={Platform.OS === "ios" ? "datetime" : reminderPickerMode}
           display={Platform.OS === "ios" ? "spinner" : "default"}
-          minimumDate={new Date()}
+          minimumDate={reminderPickerMode === "date" ? new Date() : undefined}
           onChange={handleReminderChange}
         />
       )}

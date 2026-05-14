@@ -2,13 +2,26 @@ import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 const DAILY_REVIEW_ID_KEY = "notevault-daily-review";
+const DEFAULT_CHANNEL_ID = "default";
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 export async function setupNotificationChannel() {
   if (Platform.OS !== "android") return;
 
-  await Notifications.setNotificationChannelAsync("default", {
+  await Notifications.setNotificationChannelAsync(DEFAULT_CHANNEL_ID, {
     name: "Default",
-    importance: Notifications.AndroidImportance.DEFAULT,
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: "default",
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: "#4F7CFF",
   });
 }
 
@@ -38,13 +51,13 @@ export async function scheduleDailyReviewNotification() {
     content: {
       title: "Daily review",
       body: "Take a quick moment to review your recent notes.",
-      sound: true,
+      sound: "default",
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DAILY,
       hour: 19,
       minute: 0,
-      channelId: "default",
+      channelId: DEFAULT_CHANNEL_ID,
     },
   });
 
@@ -86,7 +99,7 @@ export async function scheduleNoteReminderNotification({
     content: {
       title: "Note reminder",
       body: title?.trim() ? title : "You have a note reminder.",
-      sound: true,
+      sound: "default",
       data: {
         noteId,
       },
@@ -94,7 +107,7 @@ export async function scheduleNoteReminderNotification({
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,
       date: triggerDate,
-      channelId: "default",
+      channelId: DEFAULT_CHANNEL_ID,
     },
   });
 

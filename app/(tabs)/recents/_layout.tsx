@@ -14,6 +14,7 @@ export default function RecentsLayout() {
       }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="reminders" />
     </Stack>
   );
 }
