@@ -53,6 +53,34 @@ type SlashCommand = {
   icon: React.ReactNode;
 };
 
+function headingLevel(type: BlockType) {
+  if (type === "h1") return 1;
+  if (type === "h2") return 2;
+  if (type === "h3") return 3;
+  return null;
+}
+
+function getVisibleBlocks(blocks: Block[]) {
+  const hiddenIds = new Set<string>();
+
+  blocks.forEach((block, index) => {
+    const level = headingLevel(block.type);
+
+    if (!level || !block.collapsed) return;
+
+    for (let i = index + 1; i < blocks.length; i++) {
+      const next = blocks[i];
+      const nextLevel = headingLevel(next.type);
+
+      if (nextLevel && nextLevel <= level) break;
+
+      hiddenIds.add(next.id);
+    }
+  });
+
+  return blocks.filter((block) => !hiddenIds.has(block.id));
+}
+
 function BlockEditorImpl(props: BlockEditorProps) {
   const Colors = useThemeColors();
   const styles = makeStyles(Colors);
@@ -71,6 +99,7 @@ function BlockEditorImpl(props: BlockEditorProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [slashBlockId, setSlashBlockId] = useState<string | null>(null);
   const [slashQuery, setSlashQuery] = useState<string>("");
+  const visibleBlocks = getVisibleBlocks(blocks);
 
   const updateBlock = useCallback(
     (id: string, patch: Partial<Block>) => {
@@ -139,10 +168,23 @@ function BlockEditorImpl(props: BlockEditorProps) {
     [transformBlock],
   );
 
+  const toggleCollapsed = useCallback(
+    (id: string) => {
+      void Haptics.selectionAsync();
+
+      onChange(
+        blocks.map((b) =>
+          b.id === id ? { ...b, collapsed: !b.collapsed } : b,
+        ),
+      );
+    },
+    [blocks, onChange],
+  );
+
   return (
     <View style={styles.container}>
       <DraggableFlatList
-        data={blocks}
+        data={visibleBlocks}
         keyExtractor={(item) => item.id}
         scrollEnabled={false}
         activationDistance={8}
@@ -174,6 +216,7 @@ function BlockEditorImpl(props: BlockEditorProps) {
               setActiveId((prev) => (prev === block.id ? null : prev))
             }
             onChange={(patch) => updateBlock(block.id, patch)}
+            onToggleCollapsed={() => toggleCollapsed(block.id)}
             onRemove={() => removeBlock(block.id)}
             onTransform={(t) => transformBlock(block.id, t)}
             onSubmitEditing={() => insertAfter(block.id, "text")}
@@ -219,6 +262,7 @@ interface BlockRendererProps {
   onFocus: () => void;
   onBlur: () => void;
   onChange: (patch: Partial<Block>) => void;
+  onToggleCollapsed: () => void;
   onRemove: () => void;
   onTransform: (t: BlockType) => void;
   onSubmitEditing: () => void;
@@ -247,6 +291,7 @@ function BlockRenderer(props: BlockRendererProps) {
     onFocus,
     onBlur,
     onChange,
+    onToggleCollapsed,
     onRemove,
     onSubmitEditing,
     onInsertAfter,
@@ -315,7 +360,20 @@ function BlockRenderer(props: BlockRendererProps) {
 
         return (
           <View style={styles.headingWrap}>
+            <Pressable
+              onPress={onToggleCollapsed}
+              hitSlop={8}
+              style={styles.collapseButton}
+            >
+              {block.collapsed ? (
+                <ChevronRight size={16} color={mutedColor} />
+              ) : (
+                <ChevronDown size={16} color={mutedColor} />
+              )}
+            </Pressable>
+
             <View style={[styles.headingAccent, { backgroundColor: accent }]} />
+
             <TextInput
               style={[
                 styles.heading,
@@ -576,16 +634,15 @@ function BlockRenderer(props: BlockRendererProps) {
 
         <Pressable
           onLongPress={onDrag}
-          onPressIn={onDrag}
-          delayLongPress={120}
-          hitSlop={8}
+          delayLongPress={180}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           style={({ pressed }) => [
-            styles.gutterBtn,
-            { opacity: isActive ? 1 : 0.0001 },
-            pressed && { backgroundColor: Colors.card },
+            styles.dragHandle,
+            { opacity: isActive ? 1 : 0.45 },
+            pressed && { backgroundColor: Colors.accentSoft },
           ]}
         >
-          <GripVertical size={14} color={mutedColor} />
+          <GripVertical size={18} color={mutedColor} />
         </Pressable>
       </View>
 
@@ -1033,10 +1090,17 @@ const makeStyles = (Colors: any) =>
       transform: [{ scale: 1.01 }],
     },
     blockGutter: {
-      width: 32,
-      flexDirection: "row",
+      width: 44,
       alignItems: "center",
       paddingTop: 6,
+      gap: 4,
+    },
+    dragHandle: {
+      width: 34,
+      height: 34,
+      justifyContent: "center",
+      alignItems: "center",
+      borderRadius: 30,
     },
     gutterBtn: {
       width: 16,
@@ -1264,6 +1328,13 @@ const makeStyles = (Colors: any) =>
     addBlockText: {
       fontSize: 13,
       fontWeight: "500" as const,
+    },
+    collapseButton: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      justifyContent: "center",
+      alignItems: "center",
     },
   });
 

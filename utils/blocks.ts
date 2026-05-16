@@ -18,6 +18,7 @@ export interface Block {
   type: BlockType;
   text?: string;
   checked?: boolean;
+  collapsed?: boolean;
   language?: string;
   rows?: string[][];
   url?: string;
